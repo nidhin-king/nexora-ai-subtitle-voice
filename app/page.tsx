@@ -16,28 +16,54 @@ function seconds(v: string) {
 }
 
 function parseSub(raw: string): Cue[] {
-  const blocks = raw.replace(/\r/g, "").trim().split(/\n\s*\n/);
+  const clean = raw.replace(/\r/g, "").trim();
+  if (!clean) return [];
+
   const out: Cue[] = [];
   let id = 1;
 
-  for (const b of blocks) {
-    const lines = b.split("\n").map((x) => x.trim()).filter(Boolean);
-    const i = lines.findIndex((x) => x.includes("-->"));
-    if (i < 0) continue;
+  const pushCue = (startText: string, endText: string, text: string) => {
+    const cleanText = text.replace(/<[^>]+>/g, "").trim();
+    const start = seconds(startText);
+    const end = seconds(endText);
+    if (cleanText && Number.isFinite(start) && Number.isFinite(end) && end > start) {
+      out.push({ id: id++, start, end, text: cleanText });
+    }
+  };
 
-    const p = lines[i].split("-->");
-    const text = lines.slice(i + 1).join("\n").replace(/<[^>]+>/g, "").trim();
-    if (text) {
-      out.push({
-        id: id++,
-        start: seconds(p[0]),
-        end: seconds(p[1].split(/\s/)[0]),
-        text,
-      });
+  const blocks = clean.split(/\n\s*\n/);
+
+  for (const block of blocks) {
+    const lines = block.split("\n").map((x) => x.trim()).filter(Boolean);
+    const timingIndex = lines.findIndex((x) => x.includes("-->"));
+
+    if (timingIndex >= 0) {
+      const parts = lines[timingIndex].split("-->");
+      if (parts.length >= 2) {
+        pushCue(
+          parts[0].trim(),
+          parts[1].trim().split(/\s/)[0],
+          lines.slice(timingIndex + 1).join("\n")
+        );
+      }
+      continue;
+    }
+
+    const dialogue = lines.find((x) => /^Dialogue:/i.test(x));
+    if (dialogue) {
+      const fields = dialogue.replace(/^Dialogue:\s*/i, "").split(",");
+      if (fields.length >= 10) {
+        pushCue(fields[1], fields[2], fields.slice(9).join(","));
+      }
+      continue;
+    }
+
+    if (lines.length >= 2 && /^\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}$/.test(lines[0]) && /^\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}$/.test(lines[1])) {
+      pushCue(lines[0], lines[1], lines.slice(2).join("\n"));
     }
   }
 
-  return out.sort((a, b) => a.start - b.start);
+  return out.sort((a, b) => a.start - b.start).map((cue, index) => ({ ...cue, id: index + 1 }));
 }
 
 function fmt(s: number) {
